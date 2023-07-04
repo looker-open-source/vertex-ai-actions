@@ -144,25 +144,27 @@ def action_execute(request):
     top_p = 0.8 if 'top_p' not in form_params else safe_cast(
         form_params['top_p'], float, 0.0, 1.0, 0.8)
     preamble = '''
-        I am an analyst using a business intelligence tool to prompt AI to derive insights on my data. I will create queries to ask different questions about my first-party data. This may include sales data, customer data, marketing data, retention data, internal HR data, etc. I will provide you the results of these queries in the form of a JSON payload. Responses should be comprehensive with different metrics, insights and inferences made about the data. Please include insights that would be difficult to capture by the naked eye reading a chart or data table. 
-        Outputs from the your model will likely be used in executive presentations, internal emails, customer facing emails & collateral, or added as notes in a BI tool or CRM application.
+        I am an analyst using a business intelligence tool to prompt AI to derive insights on my data. I will create queries to ask different questions about my first-party data. This may include sales data, customer data, marketing data, retention data, internal HR data, etc. I will provide you the results of these queries in the form of a CSV payload. Responses should be comprehensive with different metrics, insights and inferences made about the data. Please include insights that would be difficult to capture by the naked eye reading a chart or data table. 
+        Outputs from the your model will likely be used in executive presentations, internal emails, customer facing emails & collateral, or added as notes in a BI tool or CRM application. 
         '''
-    prompt = preamble + form_params['question'] + attachment['data']
-    token_count = len(prompt.split())
+    prompt = preamble + form_params['question'] + '\n' + attachment['data']
+    token_count = len(
+        (preamble + form_params['question']).split()) + len(attachment['data'].split(','))
     print('Prompt contains {} tokens'.format(token_count))
-    # Max input token for text-bison: 8,192
+    # max input token for text-bison: 8,192
+    # todo - split large data into chunks
 
     try:
         insights = predict_llm(
             temperature, max_output_tokens, top_k, top_p, prompt)
         body = insights.text.replace('\n', '<br>')
 
+        # todo - make email prettier
         message = Mail(
             from_email=os.environ.get('EMAIL_SENDER'),
             to_emails=action_params['email'],
             subject='Your GenAI Report from Looker',
             html_content='<strong>{}</strong>'.format(body)
-            # todo - make email prettier
         )
 
         sg = SendGridAPIClient(os.environ.get('SENDGRID_API_KEY'))
