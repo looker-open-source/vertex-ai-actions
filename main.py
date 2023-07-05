@@ -4,7 +4,7 @@ from flask import Response
 from sendgrid import SendGridAPIClient
 from sendgrid.helpers.mail import Mail
 from icon import icon_data_uri
-from utils import authenticate, safe_cast
+from utils import authenticate, handle_error, safe_cast
 from palm_api import predict_llm
 
 
@@ -154,11 +154,21 @@ def action_execute(request):
     # max input token for text-bison: 8,192
     # todo - split large data into chunks
 
+    # placeholder for model error email response
+    body = 'There was a problem running the model. Please try again with less data. '
+
     try:
         insights = predict_llm(
             temperature, max_output_tokens, top_k, top_p, prompt)
         body = insights.text.replace('\n', '<br>')
+    except Exception as e:
+        body += 'PaLM API Error: ' + e.message
+        print(body)
 
+    if body == '':
+        body = 'No response from model. Try asking a more specific question.'
+
+    try:
         # todo - make email prettier
         message = Mail(
             from_email=os.environ.get('EMAIL_SENDER'),
@@ -171,7 +181,7 @@ def action_execute(request):
         response = sg.send(message)
         print('Message status code: {}'.format(response.status_code))
     except Exception as e:
-        print(e.message)
-        return Response(json.dumps(e.message), status=401, mimetype='application/json')
+        error = handle_error('SendGrid Error: ' + e.message, 400)
+        return error
 
     return Response(status=200, mimetype='application/json')

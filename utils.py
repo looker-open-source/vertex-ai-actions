@@ -9,10 +9,8 @@ from flask import Response
 def authenticate(request):
     """Validates auth token secret set in request header"""
     if request.method != 'POST' or 'authorization' not in request.headers:
-        error = 'Request must be POST with auth token'
-        response = {'looker': {'success': False, 'message': error}}
-        print(response)
-        return Response(json.dumps(response), status=401, mimetype='application/json')
+        error = handle_error('Request must be POST with auth token', 401)
+        return error
     else:
         expected_auth_header = 'Token token="{}"'.format(
             os.environ.get('LOOKER_AUTH_TOKEN'))
@@ -21,10 +19,15 @@ def authenticate(request):
             return Response(status=200)
 
         else:
-            error = 'Incorrect token'
-            response = {'looker': {'success': False, 'message': error}}
-            print(response)
-            return Response(json.dumps(response), status=403, mimetype='application/json')
+            error = handle_error('Incorrect token', 403)
+            return error
+
+
+def handle_error(message, status):
+    """Prints and return error message"""
+    print(message)
+    response = {'looker': {'success': False, 'message': message}}
+    return Response(json.dumps(response), status=status, mimetype='application/json')
 
 
 def safe_cast(input, to_type, min, max, default=None):
