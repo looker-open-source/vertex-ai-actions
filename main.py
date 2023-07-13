@@ -4,8 +4,8 @@ from flask import Response
 from sendgrid import SendGridAPIClient
 from sendgrid.helpers.mail import Mail
 from icon import icon_data_uri
-from utils import authenticate, handle_error, safe_cast
-from palm_api import predict_llm
+from utils import authenticate, handle_error, list_to_html, safe_cast, sanitize_and_load_json_str
+from palm_api import model_with_limit_and_backoff, reduce
 
 
 BASE_DOMAIN = 'https://{}-{}.cloudfunctions.net/{}-'.format(os.environ.get(
@@ -20,7 +20,7 @@ def action_list(request):
         return auth
 
     response = {
-        'label': 'Looker Vertex AI',
+        'label': 'Looker Vertex AI [DEV]',
         'integrations': [{
             'name': os.environ.get('ACTION_NAME'),
             'label': os.environ.get('ACTION_LABEL'),
@@ -63,6 +63,10 @@ def action_form(request):
     if 'default_params' in form_params:
         default_params = form_params['default_params']
 
+    default_row_or_all = 'all'
+    if 'row_or_all' in form_params:
+        default_row_or_all = form_params['row_or_all']
+
     # step 1 - select a prompt
     response = [{
         'name': 'question',
@@ -71,6 +75,16 @@ def action_form(request):
         'type': 'textarea',
         'required': True,
         "default":  default_question
+    },
+        {
+        'name': 'row_or_all',
+        'label': 'Run per row or all results?',
+        'description': "Choose whether to run the model on all the results together, or, individually per row.",
+        'type': 'select',
+        'required': True,
+        "default":  default_row_or_all,
+        'options': [{'name': 'all', 'label': 'All Results'},
+                    {'name': 'row', 'label': 'Per Row'}],
     },
         {
         'name': 'default_params',
@@ -131,9 +145,9 @@ def action_execute(request):
     attachment = request_json['attachment']
     action_params = request_json['data']
     form_params = request_json['form_params']
+    question = form_params['question']
     print(action_params)
     print(form_params)
-    # print(attachment['data'])  # in json format
 
     temperature = 0.2 if 'temperature' not in form_params else safe_cast(
         form_params['temperature'], float, 0.0, 1.0, 0.2)
@@ -143,24 +157,42 @@ def action_execute(request):
         form_params['top_k'], int, 1, 40, 40)
     top_p = 0.8 if 'top_p' not in form_params else safe_cast(
         form_params['top_p'], float, 0.0, 1.0, 0.8)
-    preamble = '''
-        I am an analyst using a business intelligence tool to prompt AI to derive insights on my data. I will create queries to ask different questions about my first-party data. This may include sales data, customer data, marketing data, retention data, internal HR data, etc. I will provide you the results of these queries in the form of a CSV payload. Responses should be comprehensive with different metrics, insights and inferences made about the data. Please include insights that would be difficult to capture by the naked eye reading a chart or data table. 
-        Outputs from the your model will likely be used in executive presentations, internal emails, customer facing emails & collateral, or added as notes in a BI tool or CRM application. 
-        '''
-    prompt = preamble + form_params['question'] + '\n' + attachment['data']
-    token_count = len(
-        (preamble + form_params['question']).split()) + len(attachment['data'].split(','))
-    print('Prompt contains {} tokens'.format(token_count))
-    # max input token for text-bison: 8,192
-    # todo - split large data into chunks
 
     # placeholder for model error email response
     body = 'There was a problem running the model. Please try again with less data. '
-
+    summary = ''
+    row_chunks = 50  # mumber of rows to summarize together
     try:
-        insights = predict_llm(
-            temperature, max_output_tokens, top_k, top_p, prompt)
-        body = insights.text.replace('\n', '<br>')
+        all_data = sanitize_and_load_json_str(
+            attachment['data'])
+        if form_params['row_or_all'] == 'row':
+            row_chunks = 1
+
+        summary = model_with_limit_and_backoff(
+            all_data, question, row_chunks, temperature, max_output_tokens, top_k, top_p)
+
+        # if row, zip prompt_result with all_data and send html table
+        if form_params['row_or_all'] == 'row':
+            for i in range(len(all_data)):
+                all_data[i]['prompt_result'] = summary[i]
+            body = list_to_html(all_data)
+
+        # if all, send summary on top of all_data
+        if form_params['row_or_all'] == 'all':
+            if len(summary) == 1:
+                body = 'Prompt Result:<br><strong>{}</strong><br><br><br>'.format(
+                    summary[0].replace('\n', '<br>'))
+            else:
+                reduced_summary = reduce(
+                    '\n'.join(summary), temperature, max_output_tokens, top_k, top_p)
+                body = 'Final Prompt Result:<br><strong>{}</strong><br><br>'.format(
+                    reduced_summary.replace('\n', '<br>'))
+                body += '<br><br><strong>Batch Prompt Result:</strong><br>'
+                body += '<br><br><strong>Batch Prompt Result:</strong><br>'.join(
+                    summary).replace('\n', '<br>') + '<br><br><br>'
+
+            body += list_to_html(all_data)
+
     except Exception as e:
         body += 'PaLM API Error: ' + e.message
         print(body)
@@ -174,7 +206,7 @@ def action_execute(request):
             from_email=os.environ.get('EMAIL_SENDER'),
             to_emails=action_params['email'],
             subject='Your GenAI Report from Looker',
-            html_content='<strong>{}</strong>'.format(body)
+            html_content=body
         )
 
         sg = SendGridAPIClient(os.environ.get('SENDGRID_API_KEY'))
