@@ -3,13 +3,30 @@ import ratelimit
 from google.api_core import exceptions
 import os
 import vertexai
-from vertexai.preview.language_models import TextGenerationModel
+from vertexai.preview.language_models import TextGenerationModel, CodeGenerationModel
+
+MODEL_TYPES = {
+    'text-bison': {
+        'name': 'text-bison',
+        'version': 'text-bison@001',
+        'label': 'Text Bison',
+        'max_output_tokens': 1024,
+        'model': TextGenerationModel.from_pretrained
+    },
+    'code-bison': {
+        'name': 'code-bison',
+        'version': 'code-bison@001',
+        'label': 'Code Bison',
+        'max_output_tokens': 2048,
+        'model': CodeGenerationModel.from_pretrained
+    }
+}
+DEFAULT_MODEL_TYPE = MODEL_TYPES['text-bison']['name']
 
 # https://cloud.google.com/vertex-ai/docs/quotas#request_quotas
 CALL_LIMIT = 50  # Number of calls to allow within a period
 ONE_MINUTE = 60  # One minute in seconds
 FIVE_MINUTE = 5 * ONE_MINUTE
-MODEL_NAME = 'text-bison@001'
 
 
 initial_prompt_template = '''
@@ -61,7 +78,8 @@ def backoff_hdlr(details):
 @ratelimit.limits(  # Limit the number of calls to the model per minute
     calls=CALL_LIMIT, period=ONE_MINUTE
 )
-def model_prediction(model: TextGenerationModel,
+def model_prediction(model: TextGenerationModel | CodeGenerationModel,
+                     model_type: str,
                      content: str,
                      temperature: float,
                      max_output_tokens: int,
@@ -69,20 +87,26 @@ def model_prediction(model: TextGenerationModel,
                      top_p: float,
                      ):
     """Predict using a Large Language Model."""
-
-    response = model.predict(
-        content,
-        temperature=temperature,
-        max_output_tokens=max_output_tokens,
-        top_k=top_k,
-        top_p=top_p,)
-    print('Response from Model: {}'.format(response))
+    if model_type == DEFAULT_MODEL_TYPE:
+        response = model.predict(
+            content,
+            temperature=temperature,
+            max_output_tokens=max_output_tokens,
+            top_k=top_k,
+            top_p=top_p)
+    else:
+        response = model.predict(
+            content,
+            temperature=temperature,
+            max_output_tokens=max_output_tokens)
+    print('Response from {} model: {}'.format(model_type, response))
     return response
 
 
 def model_with_limit_and_backoff(all_data: dict,
                                  question: str,
                                  row_chunks: int,
+                                 model_type: str,
                                  temperature: float,
                                  max_output_tokens: int,
                                  top_k: int,
@@ -91,24 +115,24 @@ def model_with_limit_and_backoff(all_data: dict,
     """Split data into chunks to call model predict function and applies rate limiting."""
     vertexai.init(project=os.environ.get('PROJECT'),
                   location=os.environ.get('REGION'))
-    model = TextGenerationModel.from_pretrained(MODEL_NAME)
+    model = MODEL_TYPES[model_type]['model'](MODEL_TYPES[model_type]['version'])
     initial_summary = []
     list_size = len(all_data)
 
-    # max input token for text-bison: 8,192 so we can split data into chunks
+    # max input token [text-bison: 8192, code-bison: 6144] so we split data into chunks
     for i in range(0, list_size, row_chunks):
         chunk = all_data[i:i+row_chunks]
         print('Processing rows {} to {}.'.format(i, i+row_chunks))
-        content = initial_prompt_template.format(
-            question=question, data=chunk)
+        content = initial_prompt_template.format(question=question, data=chunk)
         summary = model_prediction(
-            model, content, temperature, max_output_tokens, top_k, top_p).text
+            model, model_type, content, temperature, max_output_tokens, top_k, top_p).text
         initial_summary.append(summary)  # append summary to list of summaries
 
     return initial_summary
 
 
 def reduce(initial_summary: any,
+           model_type: str,
            temperature: float,
            max_output_tokens: int,
            top_k: int,
@@ -118,11 +142,11 @@ def reduce(initial_summary: any,
 
     vertexai.init(project=os.environ.get('PROJECT'),
                   location=os.environ.get('REGION'))
-    model = TextGenerationModel.from_pretrained(MODEL_NAME)
+    model = MODEL_TYPES[model_type]['model'](MODEL_TYPES[model_type]['version'])
     content = final_prompt_template.format(text=initial_summary)
 
     # Generate a summary using the model and the prompt
     summary = model_prediction(
-        model, content, temperature, max_output_tokens, top_k, top_p).text
+        model, model_type, content, temperature, max_output_tokens, top_k, top_p).text
 
     return summary

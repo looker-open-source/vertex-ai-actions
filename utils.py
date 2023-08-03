@@ -31,7 +31,7 @@ def handle_error(message, status):
     return Response(json.dumps(response), status=status, mimetype='application/json')
 
 
-def safe_cast(input, to_type, min, max, default=None):
+def safe_cast(input, to_type, min, max, default):
     """Casts form input values to correct type and returns default if invalid"""
     try:
         value = to_type(input)
