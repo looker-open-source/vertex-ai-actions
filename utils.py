@@ -2,6 +2,8 @@ import hmac
 import json
 import os
 import pandas as pd
+import requests
+import json
 from flask import Response
 
 
@@ -64,3 +66,24 @@ def list_to_html(list):
     df = pd.DataFrame(data=list)
     table = df.to_html()
     return table.replace('\n', '')
+
+
+def store_state(state_url, data):
+  """Stores data to the provided stateUrl.
+
+  Args:
+    state_url: The URL to store the data.
+    data: The data to store, as a dictionary.
+
+  Returns:
+    True if the data was stored successfully, False otherwise.
+  """
+  try:
+    response = requests.post(state_url, json=data)
+    response.raise_for_status()
+    print(f"Successfully stored data in state: {data}")
+    return True
+  except requests.exceptions.RequestException as e:
+    print(f"Error storing data in state: {e}")
+    return False
+
