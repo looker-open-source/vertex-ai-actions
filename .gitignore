@@ -1,2 +1,5 @@
 .vscode
 .env.yaml
+.env.secret.yaml
+*.pyc
+deploy.key

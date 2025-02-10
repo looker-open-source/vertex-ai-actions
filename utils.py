@@ -1,9 +1,9 @@
 import hmac
 import json
 import os
+import base64
 import pandas as pd
 import requests
-import json
 from flask import Response
 
 
@@ -22,7 +22,7 @@ def authenticate(request):
             return Response(status=200)
 
         else:
-            error = handle_error('Incorrect token', 403)
+            error = handle_error(f'Incorrect token: {expected_auth_header}', 403)
             return error
 
 
@@ -62,28 +62,70 @@ def sanitize_and_load_json_str(s: str, strict=False):
                 "\\" + json_string[prev_quote_index:]
 
 
-def list_to_html(list):
-    df = pd.DataFrame(data=list)
+def list_to_html(data_list):
+    """
+    Converts a list of data into an HTML table.
+
+    Args:
+        data_list: The list of data to convert.
+
+    Returns:
+        A string containing the HTML table.
+    """
+    df = pd.DataFrame(data=data_list)
     table = df.to_html()
     return table.replace('\n', '')
 
 
 def store_state(state_url, data):
-  """Stores data to the provided stateUrl.
+    """Stores data to the provided stateUrl.
 
-  Args:
-    state_url: The URL to store the data.
-    data: The data to store, as a dictionary.
+    Args:
+        state_url: The URL to store the data.
+        data: The data to store, as a dictionary.
 
-  Returns:
-    True if the data was stored successfully, False otherwise.
-  """
-  try:
-    response = requests.post(state_url, json=data)
-    response.raise_for_status()
-    print(f"Successfully stored data in state: {data}")
-    return True
-  except requests.exceptions.RequestException as e:
-    print(f"Error storing data in state: {e}")
-    return False
+    Returns:
+        True if the data was stored successfully, False otherwise.
+    """
+    try:
+        response = requests.post(state_url, json=data, timeout=10)
+        response.raise_for_status()
+        print(f"Successfully stored data in state: {data}")
+        return True
+    except requests.exceptions.RequestException as e:
+        print(f"Error storing data in state: {e}")
+        return False
 
+def reset_state(state_url):
+    """Resets the state at the provided state URL.
+
+    Args:
+        state_url: The URL to reset the state.
+
+    Returns:
+        True if the state was reset successfully, False otherwise.
+    """
+    try:
+        response = requests.post(state_url, json={'data': 'reset'}, timeout=10)
+        response.raise_for_status()
+        print("Successfully reset state")
+        return True
+    except requests.exceptions.RequestException as e:
+        print(f"Error resetting state: {e}")
+        return False
+
+def encode_state(state_url):
+    """Encodes a state URL using Base64."""
+    # Encode the URL to bytes
+    encoded_bytes = base64.urlsafe_b64encode(state_url.encode())
+    # Convert the encoded bytes to a string
+    encoded_string = encoded_bytes.decode()
+    return encoded_string
+
+def decode_state(encoded_state):
+    """Decodes a state value using Base64."""
+    # Decode the string to bytes
+    decoded_bytes = base64.urlsafe_b64decode(encoded_state.encode())
+    # Convert the decoded bytes to a string
+    decoded_string = decoded_bytes.decode()
+    return decoded_string
