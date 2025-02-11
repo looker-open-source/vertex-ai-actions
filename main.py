@@ -25,8 +25,8 @@ def action_list(request):
                 "icon_data_uri": "https://pics.freeicons.io/uploads/icons/png/18502552271551942822-512.png",
                 'form_url': BASE_DOMAIN + 'form',
                 'url': BASE_DOMAIN + 'execute',
-                'supported_formats': ['json'],
-                'reaquire_fields': [], # TODO refer to action list endpoint documentation - https://cloud.google.com/looker/docs/action-hub#supported_action_types
+                'supported_formats': ['json', 'csv_zip'],
+                'required_fields': [{"any_tag": ["sfdc_lead_id"]}],
                 'supported_formattings': ['formatted'],
                 'supported_visualization_formattings': ['noapply'],
                 'params': [
