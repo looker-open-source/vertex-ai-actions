@@ -46,5 +46,5 @@ six==1.16.0
 starkbank-ecdsa==2.2.0
 typing_extensions==4.12.2
 tzdata==2024.1
-urllib3==2.2.2
+urllib3==2.5.0
 Werkzeug==3.0.3
