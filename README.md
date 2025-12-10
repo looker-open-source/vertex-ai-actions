@@ -8,7 +8,7 @@ There are three Cloud Functions included in this demo that are used to communica
 
 ## Installation:
 
-_Before following the steps below, make sure you have enabled the [Secret Manager API](https://console.cloud.google.com/flows/enableapi?apiid=secretmanager.googleapis.com), [Cloud Build API](https://console.cloud.google.com/flows/enableapi?apiid=cloudbuild.googleapis.com), [Cloud Functions API](https://console.cloud.google.com/flows/enableapi?apiid=cloudfunctions.googleapis.com), and the [Vertex AI API](https://console.cloud.google.com/flows/enableapi?apiid=aiplatform.googleapis.com). It will take a few minutes after enabling this APIs for it to propagate through the systems._
+_Before following the steps below, make sure you have enabled the [Secret Manager API](https://console.cloud.google.com/flows/enableapi?apiid=secretmanager.googleapis.com), [Cloud Build API](https://console.cloud.google.com/flows/enableapi?apiid=cloudbuild.googleapis.com), [Cloud Functions API](https://console.cloud.google.com/flows/enableapi?apiid=cloudfunctions.googleapis.com), [Cloud Run Admin API](https://console.cloud.google.com/flows/enableapi?apiid=run.googleapis.com), [Artifact Registry API](https://console.cloud.google.com/flows/enableapi?apiid=artifactregistry.googleapis.com), and the [Vertex AI API](https://console.cloud.google.com/flows/enableapi?apiid=aiplatform.googleapis.com). It will take a few minutes after enabling this APIs for it to propagate through the systems._
 
 _Also make sure you have a Sendgrid account and API key to use for sending emails. You can create a free developer account from the [GCP marketplace](https://console.cloud.google.com/marketplace/details/sendgrid-app/sendgrid-email)._
 
@@ -18,6 +18,10 @@ The two variables you must to modify are:
 
 - `PROJECT` - ID you want to deploy the Cloud Functions to
 - `EMAIL_SENDER` - Email address of the sender
+- `MODEL_VARIANT` - Vertex AI model to use (default: gemini-2.5-flash)
+- `CALL_LIMIT` - Request quota limit (default: 50)
+- `ONE_MINUTE` - Time window for quota in seconds (default: 60)
+- `OUTPUT_TOKEN_LIMIT` - Max output tokens (default: 8192)
 
 1. Set the variables below:
 
@@ -27,6 +31,10 @@ The two variables you must to modify are:
    REGION="us-central1"
    PROJECT="my-project-id"
    EMAIL_SENDER="my-sender-email-address@foo.com"
+   MODEL_VARIANT="gemini-2.5-flash"
+   CALL_LIMIT="50"
+   ONE_MINUTE="60"
+   OUTPUT_TOKEN_LIMIT="8192"
 
    ```
 
@@ -40,7 +48,7 @@ The two variables you must to modify are:
 1. Create a [.env.yaml](.env.yaml.example) with variables:
 
    ```
-   printf "ACTION_LABEL: ${ACTION_LABEL}\nACTION_NAME: ${ACTION_NAME}\nREGION: ${REGION}\nPROJECT: ${PROJECT}\nEMAIL_SENDER: ${EMAIL_SENDER}" > .env.yaml
+   printf "ACTION_LABEL: ${ACTION_LABEL}\nACTION_NAME: ${ACTION_NAME}\nREGION: ${REGION}\nPROJECT: ${PROJECT}\nEMAIL_SENDER: ${EMAIL_SENDER}\nGEN2_ROUTER: true\nMODEL_VARIANT: ${MODEL_VARIANT}\nCALL_LIMIT: ${CALL_LIMIT}\nONE_MINUTE: ${ONE_MINUTE}\nOUTPUT_TOKEN_LIMIT: ${OUTPUT_TOKEN_LIMIT}" > .env.yaml
    ```
 
 1. Generate the LOOKER_AUTH_TOKEN secret. The auth token secret can be any randomly generated string. You can generate such a string with the openssl command:
@@ -73,20 +81,16 @@ The two variables you must to modify are:
    eval gcloud secrets add-iam-policy-binding LOOKER_AUTH_TOKEN --member=serviceAccount:${SERVICE_ACCOUNT_EMAIL} --role='roles/secretmanager.secretAccessor' --project=${PROJECT}
    ```
 
-1. Deploy 3 cloud functions for action hub listing, action form, and action execute (this may take a few minutes):
+1. Deploy the cloud function for the action hub (this may take a few minutes):
 
    ```
-   gcloud functions deploy vertex-ai-list --entry-point action_list --env-vars-file .env.yaml --trigger-http --runtime=python311 --allow-unauthenticated --no-gen2 --memory=1024MB --timeout=540s --region=${REGION} --project=${PROJECT} --service-account ${SERVICE_ACCOUNT_EMAIL} --set-secrets 'LOOKER_AUTH_TOKEN=LOOKER_AUTH_TOKEN:latest'
-
-   gcloud functions deploy vertex-ai-form --entry-point action_form --env-vars-file .env.yaml --trigger-http --runtime=python311 --allow-unauthenticated --no-gen2 --memory=1024MB --timeout=540s --region=${REGION} --project=${PROJECT} --service-account ${SERVICE_ACCOUNT_EMAIL} --set-secrets 'LOOKER_AUTH_TOKEN=LOOKER_AUTH_TOKEN:latest'
-
-   gcloud functions deploy vertex-ai-execute --entry-point action_execute --env-vars-file .env.yaml --trigger-http --runtime=python311 --allow-unauthenticated --no-gen2 --memory=8192MB --timeout=540s --region=${REGION} --project=${PROJECT} --service-account ${SERVICE_ACCOUNT_EMAIL} --set-secrets 'LOOKER_AUTH_TOKEN=LOOKER_AUTH_TOKEN:latest,SENDGRID_API_KEY=SENDGRID_API_KEY:latest'
+   gcloud functions deploy ${ACTION_NAME} --entry-point action_handler --env-vars-file .env.yaml --trigger-http --runtime=python311 --allow-unauthenticated --gen2 --memory=8192MB --timeout=540s --region=${REGION} --project=${PROJECT} --service-account ${SERVICE_ACCOUNT_EMAIL} --set-secrets 'LOOKER_AUTH_TOKEN=LOOKER_AUTH_TOKEN:latest,SENDGRID_API_KEY=SENDGRID_API_KEY:latest'
    ```
 
 1. Copy the Action Hub URL (`action_list` endpoint) and the `LOOKER_AUTH_TOKEN` to input into Looker:
 
    ```
-   echo Action Hub URL: https://${REGION}-${PROJECT}.cloudfunctions.net/${ACTION_NAME}-list
+   echo Action Hub URL: $(gcloud functions describe ${ACTION_NAME} --region=${REGION} --format='value(serviceConfig.uri)')
    echo LOOKER_AUTH_TOKEN: $LOOKER_AUTH_TOKEN
    ```
 
@@ -102,6 +106,6 @@ If the action build fails, you will receive an email notification. Go to the **A
 
 - <details><summary> Explore query to see details on action executions: </summary>
 
-  `https://${YOUR_LOOKER_DOMAIN}.com/explore/system__activity/scheduled_plan?fields=scheduled_job.id,scheduled_job.created_time,scheduled_plan_destination.action_type,scheduled_plan_destination.format,scheduled_job.status,scheduled_plan.run_once,scheduled_plan_destination.parameters,scheduled_job.status_detail&f[scheduled_plan_destination.action_type]=vertex-ai&sorts=scheduled_job.created_time+desc&limit=500`
+  `https://${YOUR_LOOKER_DOMAIN}/explore/system__activity/scheduled_plan?fields=scheduled_job.id,scheduled_job.created_time,scheduled_plan_destination.action_type,scheduled_plan_destination.format,scheduled_job.status,scheduled_plan.run_once,scheduled_plan_destination.parameters,scheduled_job.status_detail&f[scheduled_plan_destination.action_type]=vertex-ai&sorts=scheduled_job.created_time+desc&limit=500`
 
   </details>

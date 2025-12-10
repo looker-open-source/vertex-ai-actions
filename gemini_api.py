@@ -5,11 +5,9 @@ import vertexai
 from vertexai.generative_models import GenerationConfig, GenerativeModel
 from google.api_core import exceptions
 
-MODEL_VARIANT = 'gemini-1.5-flash'
-
-# https://cloud.google.com/vertex-ai/docs/quotas#request_quotas
-CALL_LIMIT = 50  # Number of calls to allow within a period
-ONE_MINUTE = 60  # One minute in seconds
+MODEL_VARIANT = os.environ.get('MODEL_VARIANT', 'gemini-2.5-flash')
+CALL_LIMIT = int(os.environ.get('CALL_LIMIT', '50'))  # Number of calls to allow within a period
+ONE_MINUTE = int(os.environ.get('ONE_MINUTE', '60'))  # One minute in seconds
 FIVE_MINUTE = 5 * ONE_MINUTE
 
 

@@ -7,13 +7,9 @@ from icon import icon_data_uri
 from utils import authenticate, handle_error, list_to_html, safe_cast, sanitize_and_load_json_str
 from gemini_api import model_with_limit_and_backoff, reduce
 
-
 BASE_DOMAIN = 'https://{}-{}.cloudfunctions.net/{}-'.format(os.environ.get(
     'REGION'), os.environ.get('PROJECT'), os.environ.get('ACTION_NAME'))
-OUTPUT_TOKEN_LIMIT = 8192
-
-# https://github.com/looker-open-source/actions/blob/master/docs/action_api.md#actions-list-endpoint
-
+OUTPUT_TOKEN_LIMIT = int(os.environ.get('OUTPUT_TOKEN_LIMIT', '8192'))
 
 def action_list(request):
     """Return action hub list endpoint data for action"""
@@ -27,24 +23,18 @@ def action_list(request):
             'name': os.environ.get('ACTION_NAME'),
             'label': os.environ.get('ACTION_LABEL'),
             'supported_action_types': ['query'],
-            "icon_data_uri": icon_data_uri,
-            'form_url': BASE_DOMAIN + 'form',
-            'url': BASE_DOMAIN + 'execute',
+            'icon_data_uri': icon_data_uri,
+            'form_url': 'https://' + request.host.rstrip('/') + '/form' if os.environ.get('GEN2_ROUTER') == 'true' else BASE_DOMAIN + 'form',
+            'url': 'https://' + request.host.rstrip('/') + '/execute' if os.environ.get('GEN2_ROUTER') == 'true' else BASE_DOMAIN + 'execute',
             'supported_formats': ['json'],
             'supported_formattings': ['formatted'],
             'supported_visualization_formattings': ['noapply'],
-            'params': [
-                {'name': 'email', 'label': 'Email',
-                    'user_attribute_name': 'email', 'required': True},
-                {'name': 'user_id', 'label': 'User ID',
-                    'user_attribute_name': 'id', 'required': True}
-            ]
+            'params': []
         }]
     }
 
     print('returning integrations json')
     return Response(json.dumps(response), status=200, mimetype='application/json')
-
 
 # https://github.com/looker-open-source/actions/blob/master/docs/action_api.md#action-form-endpoint
 def action_form(request):
@@ -71,6 +61,13 @@ def action_form(request):
 
     # step 1 - select a prompt
     response = [{
+        'name': 'email',
+        'label': 'Email Address',
+        'description': 'Where should the results be emailed?',
+        'type': 'text',
+        'required': True,
+    },
+        {
         'name': 'question',
         'label': 'Type your AI prompt',
         'description': 'Type your prompt to generate a model response.',
@@ -135,10 +132,8 @@ def action_form(request):
     print('returning form json: {}'.format(json.dumps(response)))
     return Response(json.dumps(response), status=200, mimetype='application/json')
 
-
-# https://github.com/looker-open-source/actions/blob/master/docs/action_api.md#action-execute-endpoint
 def action_execute(request):
-    """Generate a response from Generative AI Studio from a Looker action"""
+    """Generate a response from Vertex AI triggered via a Looker action"""
     auth = authenticate(request)
     if auth.status_code != 200:
         return auth
@@ -206,7 +201,7 @@ def action_execute(request):
         # todo - make email prettier
         message = Mail(
             from_email=os.environ.get('EMAIL_SENDER'),
-            to_emails=action_params['email'],
+            to_emails=form_params['email'],
             subject='Your GenAI Report from Looker',
             html_content=body
         )
@@ -219,3 +214,17 @@ def action_execute(request):
         return error
 
     return Response(status=200, mimetype='application/json')
+
+
+def action_handler(request):
+    """Router for Gen 2 Single Function Deployment"""
+    path = request.path
+    # specific check for list to handle root path
+    if path == '/' or 'list' in path: 
+        return action_list(request)
+    elif 'form' in path:
+        return action_form(request)
+    elif 'execute' in path:
+        return action_execute(request)
+    else:
+        return Response('Not Found', status=404)
