@@ -35,12 +35,10 @@ pyasn1_modules==0.4.0
 pydantic==2.7.4
 pydantic_core==2.18.4
 python-dateutil==2.9.0.post0
-python-http-client==3.3.7
 pytz==2024.1
 ratelimit==2.2.1
 requests==2.32.3
 rsa==4.9
-sendgrid==6.11.0
 shapely==2.0.4
 six==1.16.0
 starkbank-ecdsa==2.2.0

@@ -1,8 +1,7 @@
 import json
 import os
+import requests
 from flask import Response
-from sendgrid import SendGridAPIClient
-from sendgrid.helpers.mail import Mail
 from icon import icon_data_uri
 from utils import authenticate, handle_error, list_to_html, safe_cast, sanitize_and_load_json_str
 from gemini_api import model_with_limit_and_backoff, reduce
@@ -199,18 +198,18 @@ def action_execute(request):
 
     try:
         # todo - make email prettier
-        message = Mail(
-            from_email=os.environ.get('EMAIL_SENDER'),
-            to_emails=form_params['email'],
-            subject='Your GenAI Report from Looker',
-            html_content=body
-        )
+        response = requests.post(
+            "https://api.mailgun.net/v3/{}/messages".format(os.environ.get('MAILGUN_DOMAIN')),
+            auth=("api", os.environ.get('MAILGUN_API_TOKEN')),
+            data={"from": os.environ.get('EMAIL_SENDER'),
+                  "to": form_params['email'],
+                  "subject": 'Your GenAI Report from Looker',
+                  "html": body})
 
-        sg = SendGridAPIClient(os.environ.get('SENDGRID_API_KEY'))
-        response = sg.send(message)
+        response.raise_for_status()
         print('Message status code: {}'.format(response.status_code))
     except Exception as e:
-        error = handle_error('SendGrid Error: ' + e.message, 400)
+        error = handle_error('Mailgun Error: ' + str(e), 400)
         return error
 
     return Response(status=200, mimetype='application/json')
