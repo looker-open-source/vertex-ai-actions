@@ -2,7 +2,20 @@ import hmac
 import json
 import os
 import pandas as pd
+import logging
 from flask import Response
+
+# Setup structured logging
+try:
+    import google.cloud.logging
+    client = google.cloud.logging.Client()
+    client.setup_logging()
+except ImportError:
+    # Fallback for local development
+    logging.basicConfig(level=logging.INFO)
+except Exception as e:
+    print(f"Failed to setup google-cloud-logging: {e}")
+    logging.basicConfig(level=logging.INFO)
 
 def authenticate(request):
     """Validates auth token secret set in request header"""
@@ -22,7 +35,7 @@ def authenticate(request):
 
 def handle_error(message, status):
     """Prints and return error message"""
-    print(message)
+    logging.error(message)
     response = {'looker': {'success': False, 'message': message}}
     return Response(json.dumps(response), status=status, mimetype='application/json')
 
