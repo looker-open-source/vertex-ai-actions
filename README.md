@@ -1,24 +1,24 @@
 This guide will walk you through integrating Looker with [Generative AI Studio (Vertex AI)](https://cloud.google.com/vertex-ai/docs/generative-ai/learn/models) via Cloud Functions using the Looker Action API. Users can use the Looker Explore to examine data, then send the Looker query to a Cloud Function, specifying the model prompt and parameters on the form submissions.
 
-There are three Cloud Functions included in this demo that are used to communicate from Looker to Vertex AI via the [Action API](https://github.com/looker-open-source/actions/blob/master/docs/action_api.md):
-
-1. `action_list` - Lists the metadata for the action, including the form and execute endpoints
-1. `action_form` - The dynamic form template to presented to users to send parameters to the execute endpoint
-1. `action_execute` - The function to run the prediction on the data that is being sent, and send an email
+The cloud function included in this demo is used to communicate from Looker to Vertex AI via the [Action API](https://github.com/looker-open-source/actions/blob/master/docs/action_api.md):
 
 ## Installation:
 
+Installation can be done either via manual steps or [Terraform](#deployment-via-terraform).
+
+### Manual Installation
+
 _Before following the steps below, make sure you have enabled the [Secret Manager API](https://console.cloud.google.com/flows/enableapi?apiid=secretmanager.googleapis.com), [Cloud Build API](https://console.cloud.google.com/flows/enableapi?apiid=cloudbuild.googleapis.com), [Cloud Functions API](https://console.cloud.google.com/flows/enableapi?apiid=cloudfunctions.googleapis.com), [Cloud Run Admin API](https://console.cloud.google.com/flows/enableapi?apiid=run.googleapis.com), [Artifact Registry API](https://console.cloud.google.com/flows/enableapi?apiid=artifactregistry.googleapis.com), and the [Vertex AI API](https://console.cloud.google.com/flows/enableapi?apiid=aiplatform.googleapis.com). It will take a few minutes after enabling this APIs for it to propagate through the systems._
 
-_Also make sure you have a Sendgrid account and API key to use for sending emails. You can create a free developer account from the [GCP marketplace](https://console.cloud.google.com/marketplace/details/sendgrid-app/sendgrid-email)._
+_Also make sure you have a Sendgrid or Mailgun account and API key to use for sending emails. You can create a Sendgrid developer account from the [GCP marketplace](https://console.cloud.google.com/marketplace/details/sendgrid-app/sendgrid-email)._
 
 Use [Cloud Shell](https://cloud.google.com/shell) or the [`gcloud CLI`](https://cloud.google.com/sdk/docs/install) for the following steps.
 
-The two variables you must to modify are:
+The variables to modify are:
 
 - `PROJECT` - ID you want to deploy the Cloud Functions to
 - `EMAIL_SENDER` - Email address of the sender
-- `MODEL_VARIANT` - Vertex AI model to use (default: gemini-2.5-flash)
+- `MODEL_VARIANT` - Default Vertex AI model to use if not selected in form (default: gemini-2.5-flash)
 - `CALL_LIMIT` - Request quota limit (default: 50)
 - `ONE_MINUTE` - Time window for quota in seconds (default: 60)
 - `OUTPUT_TOKEN_LIMIT` - Max output tokens (default: 8192)
@@ -38,26 +38,26 @@ The two variables you must to modify are:
 
    ```
 
-1. Clone this repo
+2. Clone this repo
 
    ```
    git clone https://github.com/looker-open-source/vertex-ai-actions
    cd vertex-ai-actions/
    ```
 
-1. Create a [.env.yaml](.env.yaml.example) with variables:
+3. Create a [.env.yaml](.env.yaml.example) with variables:
 
    ```
    printf "ACTION_LABEL: ${ACTION_LABEL}\nACTION_NAME: ${ACTION_NAME}\nREGION: ${REGION}\nPROJECT: ${PROJECT}\nEMAIL_SENDER: ${EMAIL_SENDER}\nGEN2_ROUTER: true\nMODEL_VARIANT: ${MODEL_VARIANT}\nCALL_LIMIT: ${CALL_LIMIT}\nONE_MINUTE: ${ONE_MINUTE}\nOUTPUT_TOKEN_LIMIT: ${OUTPUT_TOKEN_LIMIT}" > .env.yaml
    ```
 
-1. Generate the LOOKER_AUTH_TOKEN secret. The auth token secret can be any randomly generated string. You can generate such a string with the openssl command:
+4. Generate the LOOKER_AUTH_TOKEN secret. The auth token secret can be any randomly generated string. You can generate such a string with the openssl command:
 
    ```
    LOOKER_AUTH_TOKEN="`openssl rand -hex 64`"
    ```
 
-1. Add the Auth Token and [Sendgird API key](https://app.sendgrid.com/settings/api_keys) as Secrets, then create a Service Account to run the Cloud Functions and give it access to the Secrets:
+5. Add the Auth Token and [Sendgrid API key](https://app.sendgrid.com/settings/api_keys) as Secrets, then create a Service Account to run the Cloud Functions and give it access to the Secrets:
 
    ```
    SENDGRID_API_KEY="copy your sendgrid api key here"
@@ -81,20 +81,20 @@ The two variables you must to modify are:
    eval gcloud secrets add-iam-policy-binding LOOKER_AUTH_TOKEN --member=serviceAccount:${SERVICE_ACCOUNT_EMAIL} --role='roles/secretmanager.secretAccessor' --project=${PROJECT}
    ```
 
-1. Deploy the cloud function for the action hub (this may take a few minutes):
+6. Deploy the cloud function for the action hub (this may take a few minutes):
 
    ```
    gcloud functions deploy ${ACTION_NAME} --entry-point action_handler --env-vars-file .env.yaml --trigger-http --runtime=python311 --allow-unauthenticated --gen2 --memory=8192MB --timeout=540s --region=${REGION} --project=${PROJECT} --service-account ${SERVICE_ACCOUNT_EMAIL} --set-secrets 'LOOKER_AUTH_TOKEN=LOOKER_AUTH_TOKEN:latest,SENDGRID_API_KEY=SENDGRID_API_KEY:latest'
    ```
 
-1. Copy the Action Hub URL (`action_list` endpoint) and the `LOOKER_AUTH_TOKEN` to input into Looker:
+7. Copy the Action Hub URL (`action_list` endpoint) and the `LOOKER_AUTH_TOKEN` to input into Looker:
 
    ```
    echo Action Hub URL: $(gcloud functions describe ${ACTION_NAME} --region=${REGION} --format='value(serviceConfig.uri)')
    echo LOOKER_AUTH_TOKEN: $LOOKER_AUTH_TOKEN
    ```
 
-1. In Looker, go to the **Admin > Actions** page and click **Add Action Hub**
+8. In Looker, go to the **Admin > Actions** page and click **Add Action Hub**
 
    - Enter the Action Hub URL
    - click **Configure Authorization** and enter the `LOOKER_AUTH_TOKEN` value for the Authorization Token and click **Enable**
@@ -109,3 +109,36 @@ If the action build fails, you will receive an email notification. Go to the **A
   `https://${YOUR_LOOKER_DOMAIN}/explore/system__activity/scheduled_plan?fields=scheduled_job.id,scheduled_job.created_time,scheduled_plan_destination.action_type,scheduled_plan_destination.format,scheduled_job.status,scheduled_plan.run_once,scheduled_plan_destination.parameters,scheduled_job.status_detail&f[scheduled_plan_destination.action_type]=vertex-ai&sorts=scheduled_job.created_time+desc&limit=500`
 
   </details>
+
+### Deployment via Terraform
+
+Alternatively, you can manage the deployment using [Terraform](https://www.terraform.io/). A `terraform/` directory is provided with the configuration.
+
+1.  Navigate to the `terraform` directory:
+    ```bash
+    cd terraform
+    ```
+
+2.  Initialize Terraform:
+    ```bash
+    terraform init
+    ```
+
+3.  Create a `terraform.tfvars` file with your configuration:
+
+    ```hcl
+    project_id        = "your-project-id"
+    region            = "us-central1"
+    email_sender      = "noreply@yourdomain.com"
+    looker_auth_token = "your-looker-token"
+    mailgun_api_token = "your-mailgun-token" # Or sendgrid_api_key
+    mailgun_domain    = "your-mailgun-domain"
+    ```
+
+4.  Plan and apply:
+    ```bash
+    terraform plan
+    terraform apply
+    ```
+
+5. See the [Manual Installation](#manual-installation) section for instructions on how to configure Looker's action hub with the output Cloud Run url.

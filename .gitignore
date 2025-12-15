@@ -1,2 +1,22 @@
-.vscode
+# Python
+__pycache__/
+*.py[cod]
+*.class
+venv/
+.pytest_cache/
+
+# Environment Variables
 .env.yaml
+
+# Terraform
+.terraform/
+**/.terraform/
+*.tfstate
+*.tfstate.backup
+*.tfvars
+terraform/source.zip
+terraform/terraform
+
+# IDE
+.vscode/
+.idea/
