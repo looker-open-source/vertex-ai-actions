@@ -277,8 +277,8 @@ def action_execute(request):
     return Response(status=200, mimetype='application/json')
 
 ALLOWED_HTML_TAGS = [
-    'p', 'ul', 'ol', 'li', 'strong', 'em', 'br',
-    'code', 'pre', 'blockquote', 'h1', 'h2', 'h3', 'h4',
+    'p', 'ul', 'ol', 'li', 'strong', 'em', 'br', 'hr',
+    'code', 'pre', 'blockquote', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
 ]
 
 
