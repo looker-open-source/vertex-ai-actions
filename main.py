@@ -4,6 +4,8 @@ import requests
 from flask import Response
 from icon import icon_data_uri
 import logging
+import html
+import bleach
 import markdown
 from utils import authenticate, handle_error, list_to_html, safe_cast, sanitize_and_load_json_str
 from gemini_api import model_with_limit_and_backoff, reduce
@@ -215,17 +217,17 @@ def action_execute(request):
         if form_params['row_or_all'] == 'all':
             if len(summary) == 1:
                 content_html += '<div class="summary-card"><div class="summary-title">Summary</div>{}</div>'.format(
-                    markdown.markdown(summary[0]))
+                    safe_markdown(summary[0]))
             else:
                 reduced_summary = reduce(
                     '\n'.join(summary), temperature, max_output_tokens, top_k, top_p, model_name)
                 content_html += '<div class="summary-card"><div class="summary-title">Executive Summary</div>{}</div>'.format(
-                    markdown.markdown(reduced_summary))
+                    safe_markdown(reduced_summary))
                 
                 content_html += '<div class="batch-results"><h3>Detailed Analysis Batches</h3>'
                 for idx, s in enumerate(summary):
                     content_html += '<div class="batch-item"><div class="batch-title">Batch {}</div>{}</div>'.format(
-                        idx + 1, markdown.markdown(s))
+                        idx + 1, safe_markdown(s))
                 content_html += '</div>'
 
             content_html += '<br><h3>Source Data</h3>' + list_to_html(all_data)
@@ -261,7 +263,7 @@ def action_execute(request):
             </div>
         </body>
         </html>
-        """.format(email_css, error_msg)
+        """.format(email_css, html.escape(error_msg))
 
     if body == '':
         body = 'No response from model. Try asking a more specific question.'
@@ -273,6 +275,26 @@ def action_execute(request):
         return error
 
     return Response(status=200, mimetype='application/json')
+
+ALLOWED_HTML_TAGS = [
+    'p', 'ul', 'ol', 'li', 'strong', 'em', 'br',
+    'code', 'pre', 'blockquote', 'h1', 'h2', 'h3', 'h4',
+]
+
+
+def safe_markdown(text):
+    """Converts Markdown to HTML and strips disallowed tags and attributes."""
+    if not text:
+        return ''
+    rendered_html = markdown.markdown(str(text))
+    return bleach.clean(
+        rendered_html,
+        tags=ALLOWED_HTML_TAGS,
+        attributes={},
+        protocols=[],
+        strip=True,
+    )
+
 
 def send_email(recipient, subject, html_content):
     """Sends email using either SendGrid or Mailgun based on env vars"""
