@@ -19,14 +19,20 @@ except Exception as e:
 
 def authenticate(request):
     """Validates auth token secret set in request header"""
+    token = os.environ.get('LOOKER_AUTH_TOKEN')
+    if not token or not token.strip():
+        return handle_error('Server auth not configured', 500)
+
     if request.method != 'POST' or 'authorization' not in request.headers:
         error = handle_error('Request must be POST with auth token', 401)
         return error
     else:
-        expected_auth_header = 'Token token="{}"'.format(
-            os.environ.get('LOOKER_AUTH_TOKEN'))
+        expected_auth_header = 'Token token="{}"'.format(token)
         submitted_auth = request.headers['authorization']
-        if hmac.compare_digest(expected_auth_header, submitted_auth):
+        if hmac.compare_digest(
+            expected_auth_header.encode('utf-8'),
+            submitted_auth.encode('utf-8'),
+        ):
             return Response(status=200)
 
         else:
