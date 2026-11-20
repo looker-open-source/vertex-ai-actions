@@ -6,10 +6,23 @@ import logging
 from vertexai.generative_models import GenerationConfig, GenerativeModel
 from google.api_core import exceptions
 
-MODEL_VARIANT = os.environ.get('MODEL_VARIANT', 'gemini-2.5-flash')
+DEFAULT_MODEL = 'gemini-2.5-flash'
+MODEL_OPTIONS = [
+    {'name': 'gemini-2.5-flash', 'label': 'Gemini 2.5 Flash (Fast)'},
+    {'name': 'gemini-2.5-flash-lite', 'label': 'Gemini 2.5 Flash Lite (Fast)'},
+    {'name': 'gemini-1.5-pro', 'label': 'Gemini 1.5 Pro (Reasoning)'},
+]
+ALLOWED_MODELS = frozenset(option['name'] for option in MODEL_OPTIONS)
+
+MODEL_VARIANT = os.environ.get('MODEL_VARIANT', DEFAULT_MODEL)
 CALL_LIMIT = int(os.environ.get('CALL_LIMIT', '50'))  # Number of calls to allow within a period
 ONE_MINUTE = int(os.environ.get('ONE_MINUTE', '60'))  # One minute in seconds
 FIVE_MINUTE = 5 * ONE_MINUTE
+
+
+def validate_model_name(model_name) -> bool:
+    """Returns True only if model_name is an exact allowed model string."""
+    return type(model_name) is str and model_name in ALLOWED_MODELS
 
 
 initial_prompt_template = '''
@@ -87,6 +100,10 @@ def model_with_limit_and_backoff(all_data: dict,
                                  model_name: str
                                  ):
     """Split data into chunks to call model predict function and applies rate limiting."""
+    if not validate_model_name(model_name):
+        allowed_str = ', '.join(sorted(ALLOWED_MODELS))
+        raise ValueError(f'Invalid model_selection. Must be one of: {allowed_str}.')
+
     vertexai.init(project=os.environ.get('PROJECT'),
                   location=os.environ.get('REGION'))
     model = GenerativeModel(model_name)
@@ -113,6 +130,9 @@ def reduce(initial_summary: any,
            model_name: str
            ):
     """creates a summary of the summaries"""
+    if not validate_model_name(model_name):
+        allowed_str = ', '.join(sorted(ALLOWED_MODELS))
+        raise ValueError(f'Invalid model_selection. Must be one of: {allowed_str}.')
 
     vertexai.init(project=os.environ.get('PROJECT'),
                   location=os.environ.get('REGION'))

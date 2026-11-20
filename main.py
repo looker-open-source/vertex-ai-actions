@@ -6,7 +6,7 @@ from icon import icon_data_uri
 import logging
 import markdown
 from utils import authenticate, handle_error, list_to_html, safe_cast, sanitize_and_load_json_str
-from gemini_api import model_with_limit_and_backoff, reduce
+from gemini_api import ALLOWED_MODELS, DEFAULT_MODEL, MODEL_OPTIONS, model_with_limit_and_backoff, reduce, validate_model_name
 
 BASE_DOMAIN = 'https://{}-{}.cloudfunctions.net/{}-'.format(os.environ.get(
     'REGION'), os.environ.get('PROJECT'), os.environ.get('ACTION_NAME'))
@@ -92,10 +92,8 @@ def action_form(request):
         'description': 'Select the Gemini model version to use.',
         'type': 'select',
         'required': True,
-        'default': 'gemini-2.5-flash',
-        'options': [{'name': 'gemini-2.5-flash', 'label': 'Gemini 2.5 Flash (Fast)'},
-                    {'name': 'gemini-2.5-flash-lite', 'label': 'Gemini 2.5 Flash Lite (Fast)'},
-                    {'name': 'gemini-1.5-pro', 'label': 'Gemini 1.5 Pro (Reasoning)'}],
+        'default': DEFAULT_MODEL,
+        'options': MODEL_OPTIONS,
     },
         {
         'name': 'default_params',
@@ -167,7 +165,17 @@ def action_execute(request):
     top_p = 0.8 if 'top_p' not in form_params else safe_cast(
         form_params['top_p'], float, 0.0, 1.0, 0.8)
     
-    model_name = form_params.get('model_selection', os.environ.get('MODEL_VARIANT', 'gemini-2.5-flash'))
+    if 'model_selection' in form_params:
+        model_name = form_params['model_selection']
+    else:
+        model_name = os.environ.get('MODEL_VARIANT', DEFAULT_MODEL)
+
+    if not validate_model_name(model_name):
+        allowed_str = ', '.join(sorted(ALLOWED_MODELS))
+        return handle_error(
+            f'Invalid model_selection. Must be one of: {allowed_str}.',
+            400,
+        )
 
     # placeholder for model error email response
     body = 'There was a problem running the model. Please try again with less data. '
